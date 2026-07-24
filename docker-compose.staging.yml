@@ -20,6 +20,22 @@ services:
       - backend_uploads:/usr/src/app/uploads
       - backend_logs:/usr/src/app/logs
 
+  admin:
+    image: praveenmalethia/quick-flick-admin:staging-placeholder
+    restart: unless-stopped
+    env_file:
+      - stack.env
+    depends_on:
+      - backend
+
+  frontend:
+    image: praveenmalethia/quick-flick-frontend:staging-placeholder
+    restart: unless-stopped
+    env_file:
+      - stack.env
+    depends_on:
+      - backend
+
   mongo-express:
     image: mongo-express
     restart: unless-stopped

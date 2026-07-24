@@ -10,7 +10,7 @@ services:
       - stack.env
 
   backend:
-    image: praveenmalethia/quick-flick-backend:main-8af2368
+    image: praveenmalethia/quick-flick-backend:main-placeholder
     restart: unless-stopped
     env_file:
       - stack.env
@@ -19,6 +19,22 @@ services:
     volumes:
       - backend_uploads:/usr/src/app/uploads
       - backend_logs:/usr/src/app/logs
+
+  admin:
+    image: praveenmalethia/quick-flick-admin:main-placeholder
+    restart: unless-stopped
+    env_file:
+      - stack.env
+    depends_on:
+      - backend
+
+  frontend:
+    image: praveenmalethia/quick-flick-frontend:main-placeholder
+    restart: unless-stopped
+    env_file:
+      - stack.env
+    depends_on:
+      - backend
 
   mongo-express:
     image: mongo-express
