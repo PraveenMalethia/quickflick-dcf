@@ -1,0 +1,32 @@
+name: quickflick
+
+services:
+  mongodb:
+    image: mongo:6.0
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+    env_file:
+      - stack.env
+
+  backend:
+    image: praveenmalethia/quick-flick-backend:main-placeholder
+    restart: unless-stopped
+    env_file:
+      - stack.env
+    depends_on:
+      - mongodb
+    volumes:
+      - backend_uploads:/usr/src/app/uploads
+      - backend_logs:/usr/src/app/logs
+
+  mongo-express:
+    image: mongo-express
+    restart: unless-stopped
+    env_file:
+      - stack.env
+
+volumes:
+  mongo_data:
+  backend_uploads:
+  backend_logs:
