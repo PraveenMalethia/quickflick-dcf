@@ -2,12 +2,18 @@ name: quickflick
 
 services:
   mongodb:
-    image: mongo:6.0
+    build: ./mongo
     restart: unless-stopped
     volumes:
       - mongo_data:/data/db
     env_file:
       - stack.env
+    healthcheck:
+      test: mongosh --eval "rs.status().ok" --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
   backend:
     image: praveenmalethia/quick-flick-backend:main-8af2368
@@ -15,7 +21,8 @@ services:
     env_file:
       - stack.env
     depends_on:
-      - mongodb
+      mongodb:
+        condition: service_healthy
     volumes:
       - backend_uploads:/usr/src/app/uploads
       - backend_logs:/usr/src/app/logs
