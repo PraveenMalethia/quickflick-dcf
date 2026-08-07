@@ -1,7 +1,6 @@
 FROM mongo:7.0
 
-# Copy the replica set init script
-COPY rs-init.sh /rs-init.sh
-RUN chmod +x /rs-init.sh
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
-ENTRYPOINT ["/rs-init.sh"]
+ENTRYPOINT ["/entrypoint.sh"]

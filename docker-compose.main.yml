@@ -4,16 +4,31 @@ services:
   mongodb:
     build: ./mongo
     restart: unless-stopped
+    command: ["--replSet", "rs0", "--bind_ip_all", "--keyFile", "/data/db/mongo-keyfile"]
     volumes:
       - mongo_data:/data/db
     env_file:
       - stack.env
     healthcheck:
-      test: mongosh --eval "rs.status().ok" --quiet
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      test: mongosh -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin --eval "db.runCommand('ping').ok" --quiet
+      interval: 5s
+      timeout: 3s
+      retries: 10
       start_period: 15s
+
+  rs-init:
+    image: mongo:7.0
+    restart: "no"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    env_file:
+      - stack.env
+    entrypoint: ["bash", "/rs-init.sh"]
+    configs:
+      - source: rs_init_script
+        target: /rs-init.sh
+        mode: 0755
 
   backend:
     image: praveenmalethia/quick-flick-backend:main-8af2368
@@ -21,8 +36,8 @@ services:
     env_file:
       - stack.env
     depends_on:
-      mongodb:
-        condition: service_healthy
+      rs-init:
+        condition: service_completed_successfully
     volumes:
       - backend_uploads:/usr/src/app/uploads
       - backend_logs:/usr/src/app/logs
@@ -48,6 +63,10 @@ services:
     restart: unless-stopped
     env_file:
       - stack.env
+
+configs:
+  rs_init_script:
+    file: ./mongo/rs-init.sh
 
 volumes:
   mongo_data:

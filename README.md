@@ -7,6 +7,7 @@ Docker Compose Fleet configuration for QuickFlick deployment.
 | Service | Description |
 |---------|-------------|
 | mongodb | MongoDB 7.0 single-node replica set (supports transactions) |
+| rs-init | One-shot init container: generates keyfile + initiates replica set |
 | backend | QuickFlick Backend API |
 | admin | QuickFlick Admin Panel |
 | frontend | QuickFlick Customer PWA |
@@ -22,36 +23,47 @@ Docker Compose Fleet configuration for QuickFlick deployment.
 
 MongoDB runs as a **single-node replica set** (`rs0`) to support multi-document transactions.
 
-The custom `mongo/Dockerfile` + `mongo/rs-init.sh` entrypoint:
-1. Generates a keyfile for internal replica set auth (idempotent — skips if exists)
-2. Starts `mongod --replSet rs0 --keyFile ...`
-3. Auto-initiates the replica set on first boot (idempotent — skips if already initiated)
-4. Waits for PRIMARY status before handing off
+### Architecture
 
-**No manual `rs.initiate()` step is needed.** The container handles it automatically.
+1. **`mongodb` service** — Custom image (`mongo/Dockerfile`) that:
+   - Generates `/data/db/mongo-keyfile` on first boot (required for auth + replSet)
+   - Delegates to the official `docker-entrypoint.sh` (which creates the root user from `MONGO_INITDB_*` env vars)
+   - Starts with `--replSet rs0 --bind_ip_all --keyFile /data/db/mongo-keyfile`
+
+2. **`rs-init` service** — One-shot init container that:
+   - Waits for mongodb to be healthy
+   - Runs `rs.initiate()` if the replica set isn't initiated yet (idempotent)
+   - Exits 0 on success; backend starts after this completes
+
+### ⚠️ Important: MONGO_URI must include `replicaSet=rs0`
+
+```
+MONGO_URI=mongodb://admin:password@mongodb:27017/quickflick?authSource=admin&replicaSet=rs0
+```
+
+Without `&replicaSet=rs0`, Mongoose will not use transactions and you'll get the error:
+`Transaction numbers are only allowed on a replica set member or mongos`
 
 ## Portainer Deployment
 
 1. Push changes to this repo
-2. In Portainer → Stacks → quickflick → Editor, update the compose content from this repo
-3. Update the `stack.env` environment variables in Portainer UI — **make sure `MONGO_URI` includes `&replicaSet=rs0`**
-4. Click "Update the stack"
-5. MongoDB will auto-initiate the replica set on startup
+2. In Portainer → Stacks → quickflick → Editor, update the compose content
+3. In Portainer env vars, **make sure `MONGO_URI` includes `&replicaSet=rs0`**
+4. Click "Update the stack" — Portainer will:
+   - Build the custom `mongodb` image (keyfile generation entrypoint)
+   - Start mongodb → wait for healthcheck → run rs-init → start backend
 
-### ⚠️ First-time deployment
+### First-time deployment (fresh volume)
 
-If deploying to a **fresh volume** (no existing data):
-- The init script auto-creates the keyfile and initiates the replica set
-- No manual steps required
+Everything is automatic — keyfile generation, root user creation, and rs.initiate all happen automatically.
 
-If deploying to an **existing volume** (upgrading from standalone):
-- Stop the stack first
-- The init script detects existing data and initiates the replica set
-- All existing data is preserved
+### Upgrading from standalone (existing data volume)
+
+The rs-init container detects an existing replica set and skips initiation. Existing data is preserved. The keyfile is generated on the shared volume and persists across restarts.
 
 ## Notes
 
-- All env vars come from `stack.env` — no `environment:` blocks in compose
+- All env vars come from `stack.env` / Portainer env vars — no `environment:` blocks in compose
 - Backend listens on port 3000 (set via `PORT` env var)
 - Mongo Express available on port 8081 via NPM
-- `mongodb` service has a healthcheck (`rs.status().ok`) — backend waits for it via `depends_on: condition: service_healthy`
+- `mongodb` has a healthcheck; backend waits for `rs-init` to complete before starting
