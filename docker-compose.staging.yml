@@ -42,10 +42,20 @@ services:
     env_file:
       - stack.env
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+
 volumes:
   mongo_data:
   backend_uploads:
   backend_logs:
+  redis_data:
 
 networks:
   default:
