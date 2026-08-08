@@ -26,14 +26,16 @@ MongoDB runs as a **single-node replica set** (`rs0`) to support multi-document 
 ### Architecture
 
 1. **`mongodb` service** — Custom image (`mongo/Dockerfile`) that:
-   - Generates `/data/db/mongo-keyfile` on first boot (required for auth + replSet)
+   - Bakes in `entrypoint.sh` (generates `/data/db/mongo-keyfile` on first boot) and `rs-init.sh`
    - Delegates to the official `docker-entrypoint.sh` (which creates the root user from `MONGO_INITDB_*` env vars)
    - Starts with `--replSet rs0 --bind_ip_all --keyFile /data/db/mongo-keyfile`
 
-2. **`rs-init` service** — One-shot init container that:
+2. **`rs-init` service** — One-shot init container (same custom image, entrypoint overridden to `bash /rs-init.sh`) that:
    - Waits for mongodb to be healthy
    - Runs `rs.initiate()` if the replica set isn't initiated yet (idempotent)
    - Exits 0 on success; backend starts after this completes
+
+> **Note:** Both scripts are baked into the image via the Dockerfile — no host files are needed at deploy time. This is required for Portainer, which only stores the compose YAML, not the repo tree.
 
 ### ⚠️ Important: MONGO_URI must include `replicaSet=rs0`
 
