@@ -32,7 +32,7 @@ if [ "$IS_INITIATED" != "1" ]; then
     --eval "
       rs.initiate({
         _id: 'rs0',
-        members: [{ _id: 0, host: 'localhost:27017' }]
+        members: [{ _id: 0, host: 'quickflick-mongodb-1:27017' }]
       })
     "
 
