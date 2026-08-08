@@ -27,7 +27,7 @@ services:
     entrypoint: ["bash", "/rs-init.sh"]
 
   backend:
-    image: praveenmalethia/quick-flick-backend:staging-a6ba8ae
+    image: praveenmalethia/quick-flick-backend:staging-6fbfd2d
     restart: unless-stopped
     env_file:
       - stack.env
