@@ -22,7 +22,7 @@ services:
       - backend_logs:/usr/src/app/logs
 
   admin:
-    image: praveenmalethia/quick-flick-admin:staging-8bf7f3d
+    image: praveenmalethia/quick-flick-admin:staging-ffe01c3
     restart: unless-stopped
     env_file:
       - stack.env
