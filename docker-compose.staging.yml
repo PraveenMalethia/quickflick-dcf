@@ -53,7 +53,7 @@ services:
   # Self-hosted OSRM router (Northern India extract) — route polylines
   # for the admin tracking map. Serves standard OSRM API on :5000.
   osrm:
-    image: praveenmalethia/quick-flick-osrm:staging-555ed6a
+    image: praveenmalethia/quick-flick-osrm:staging-d5f52de
     restart: unless-stopped
 
 volumes:
