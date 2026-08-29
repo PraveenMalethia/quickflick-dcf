@@ -50,6 +50,12 @@ services:
     volumes:
       - redis_data:/data
 
+  # Self-hosted OSRM router (Northern India extract) — route polylines
+  # for the admin tracking map. Serves standard OSRM API on :5000.
+  osrm:
+    image: praveenmalethia/quick-flick-osrm:staging-placeholder
+    restart: unless-stopped
+
 volumes:
   mongo_data:
   backend_uploads:
