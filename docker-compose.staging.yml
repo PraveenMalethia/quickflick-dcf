@@ -52,9 +52,13 @@ services:
 
   # Self-hosted OSRM router (Northern India extract) — route polylines
   # for the admin tracking map. Serves standard OSRM API on :3000.
+  # env_file supplies OSRM_ALGORITHM=MLD — the CH graph (~2.5GB RSS) is
+  # OOM-killed on this 16GB zero-swap host; MLD loads in ~1.2GB.
   osrm:
     image: praveenmalethia/quick-flick-osrm:staging-d5f52de
     restart: unless-stopped
+    env_file:
+      - stack.env
 
 volumes:
   mongo_data:
