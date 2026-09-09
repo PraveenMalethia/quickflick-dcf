@@ -55,7 +55,7 @@ services:
   # env_file supplies OSRM_ALGORITHM=MLD — the CH graph (~2.5GB RSS) is
   # OOM-killed on this 16GB zero-swap host; MLD loads in ~1.2GB.
   osrm:
-    image: praveenmalethia/quick-flick-osrm:staging-d5f52de
+    image: praveenmalethia/quick-flick-osrm:main-3d2614f
     restart: unless-stopped
     env_file:
       - stack.env
