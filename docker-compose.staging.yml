@@ -30,7 +30,7 @@ services:
       - backend
 
   frontend:
-    image: praveenmalethia/quick-flick-frontend:staging-bbc94fd
+    image: praveenmalethia/quick-flick-frontend:staging-23c43e1
     restart: unless-stopped
     env_file:
       - stack.env
