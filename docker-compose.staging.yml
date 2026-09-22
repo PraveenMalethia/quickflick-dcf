@@ -1,47 +1,76 @@
 name: quickflick
 
+# ══════════════════════════════════════════════════════════════════════════════
+# QuickFlick — staging stack (Dangal host)
+# Portainer stack "quickflick", git-backed from this repo, entrypoint
+# docker-compose.staging.yml. Project path on host: /data/compose/114
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# ── DEPLOY SAFETY (read before creating any container by hand) ───────────────
+# Every service below is owned by compose:
+#   com.docker.compose.project=quickflick
+#   com.docker.compose.service=<name>
+#   com.docker.compose.config-hash=<hash>      ← what makes adoption possible
+#
+# NEVER hand-create a container using one of these names
+# (docker run --name quickflick-backend-1 …). A hand-made container is missing
+# com.docker.compose.config-hash, so `compose up` cannot recognise it as the
+# service's container. It tries to CREATE a duplicate instead, the daemon
+# rejects the duplicate name, and the ENTIRE stack update aborts — leaving every
+# service it had already touched stranded in `Created` (and taking the site
+# down until they are started manually).
+#
+#   Error: Conflict. The container name "/quickflick-backend-1" is already in
+#          use by container "<id>". You have to remove (or rename) that
+#          container to be able to reuse that name.
+#
+# If that error appears, the stray container must be removed — recreating it
+# with the same name does NOT help unless compose itself creates it. Recovery:
+#   1. docker ps -a --format '{{.Names}}\t{{.Status}}' | grep quickflick
+#      (services showing `Created` = stranded by the aborted deploy)
+#   2. docker rm -f <any container with NO com.docker.compose.config-hash label>
+#   3. docker start <each quickflick-* still in `Created`>
+#   4. Re-run "Update the stack" in Portainer — it will now create the removed
+#      service itself, with correct labels.
+#
+# ── STARTUP ORDER ───────────────────────────────────────────────────────────
+# depends_on uses `condition: service_healthy`, not bare start order, so the
+# backend no longer boots (and fails) against a mongod that has not finished
+# electing itself PRIMARY. Healthchecks also make a partially-broken stack
+# visible in `docker ps` / Portainer instead of silently serving 500s.
+#
+# ── LOG ROTATION ────────────────────────────────────────────────────────────
+# Default json-file logging is unbounded. This host's disk sits at ~76%, so
+# every service caps its logs.
+# ══════════════════════════════════════════════════════════════════════════════
+
 services:
   mongodb:
     image: mongo:7.0
     restart: unless-stopped
+    # replSet rs0 requires the keyFile to exist inside the volume at boot.
+    # Member host must be the CONTAINER NAME (not localhost) — clients that
+    # receive "localhost" in the replica-set config try to reach themselves and
+    # fail with ECONNREFUSED 127.0.0.1. Fix with rs.reconfig({force:true}).
     command: ["--replSet", "rs0", "--bind_ip_all", "--keyFile", "/data/db/mongo-keyfile"]
     volumes:
       - mongo_data:/data/db
     env_file:
       - stack.env
-
-  backend:
-    image: praveenmalethia/quick-flick-backend:staging-9395a05
-    restart: unless-stopped
-    env_file:
-      - stack.env
-    depends_on:
-      - mongodb
-    volumes:
-      - backend_uploads:/usr/src/app/uploads
-      - backend_logs:/usr/src/app/logs
-
-  admin:
-    image: praveenmalethia/quick-flick-admin:staging-3f09463
-    restart: unless-stopped
-    env_file:
-      - stack.env
-    depends_on:
-      - backend
-
-  frontend:
-    image: praveenmalethia/quick-flick-frontend:staging-3c38ae1
-    restart: unless-stopped
-    env_file:
-      - stack.env
-    depends_on:
-      - backend
-
-  mongo-express:
-    image: mongo-express
-    restart: unless-stopped
-    env_file:
-      - stack.env
+    stop_grace_period: 60s
+    healthcheck:
+      # ping is permitted pre-authentication on the admin db, so this probe does
+      # not depend on credentials being present/correct.
+      test: ["CMD-SHELL", "mongosh mongodb://127.0.0.1:27017/admin --quiet --eval 'db.adminCommand({ping:1}).ok' | grep -q 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 6
+      start_period: 40s
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
 
   redis:
     image: redis:7-alpine
@@ -49,16 +78,147 @@ services:
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
-  # Self-hosted OSRM router (Northern India extract) — route polylines
-  # for the admin tracking map. Serves standard OSRM API on :3000.
-  # env_file supplies OSRM_ALGORITHM=MLD — the CH graph (~2.5GB RSS) is
-  # OOM-killed on this 16GB zero-swap host; MLD loads in ~1.2GB.
+  backend:
+    image: praveenmalethia/quick-flick-backend:staging-9395a05
+    restart: unless-stopped
+    env_file:
+      - stack.env
+    environment:
+      # ── Staging OTP ─────────────────────────────────────────────────────────
+      # OtpService only issues the fixed dev OTP (123456, log-only, no SMS) when
+      # BOTH ENABLE_DEV_OTP=true AND NODE_ENV != 'production'. Without the flag
+      # the service takes the production branch, tries Twilio Verify, finds no
+      # credentials and fails — logins on staging break.
+      #
+      # Declared HERE, in the compose service, so it cannot be lost:
+      # Portainer regenerates stack.env from its own UI env list on every
+      # deploy, so anything set only in that file disappears on redeploy.
+      # `environment:` always wins over `env_file:`, making this authoritative.
+      # Staging-only file — production uses docker-compose.main.yml.
+      ENABLE_DEV_OTP: "true"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - backend_uploads:/usr/src/app/uploads
+      - backend_logs:/usr/src/app/logs
+    healthcheck:
+      # This image ships wget + node but NOT curl or bash. /api/config is a
+      # public endpoint that returns 200 without auth.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/api/config"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 45s
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  admin:
+    image: praveenmalethia/quick-flick-admin:staging-3f09463
+    restart: unless-stopped
+    env_file:
+      - stack.env
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1/"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  frontend:
+    image: praveenmalethia/quick-flick-frontend:staging-3c38ae1
+    restart: unless-stopped
+    env_file:
+      - stack.env
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:3000/"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  mongo-express:
+    # Pinned: a floating `mongo-express` tag means any stack update can silently
+    # pull a new major release and break the admin DB UI.
+    image: mongo-express:1.0.2
+    restart: unless-stopped
+    env_file:
+      - stack.env
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    healthcheck:
+      # image has node but no curl; plain TCP connect is enough here.
+      test: ["CMD", "node", "-e", "const s=require('net').connect(3000,'127.0.0.1',()=>{s.end();process.exit(0)});s.on('error',()=>process.exit(1));s.setTimeout(3000,()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Self-hosted OSRM router (Northern India extract) — route polylines for the
+  # admin tracking map and the customer order screen. Serves the standard OSRM
+  # API on :3000.
+  #
+  # env_file supplies OSRM_ALGORITHM=MLD. The CH graph (~2.5GB RSS) gets
+  # OOM-killed on this 16GB host; MLD loads in ~1.2GB. Do NOT drop the env_file
+  # or OSRM silently falls back to CH and dies in a crash loop.
   osrm:
     image: praveenmalethia/quick-flick-osrm:staging-d5f52de
     restart: unless-stopped
     env_file:
       - stack.env
+    healthcheck:
+      # Minimal Debian image: no curl, no wget, no nc. bash + timeout are
+      # present, so probe the listening socket directly.
+      test: ["CMD-SHELL", "timeout 4 bash -c 'exec 3<>/dev/tcp/127.0.0.1/3000'"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      # Generous: the MLD graph takes ~60-90s to memory-map and load.
+      start_period: 120s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   mongo_data:
@@ -70,4 +230,6 @@ networks:
   default:
     ipam:
       config:
+        # Fixed subnet: the reverse proxy (NPM) reaches these containers on
+        # 10.20.0.x. Changing this breaks every quickflick subdomain.
         - subnet: 10.20.0.0/16
