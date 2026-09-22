@@ -11,7 +11,7 @@ services:
       - stack.env
 
   backend:
-    image: praveenmalethia/quick-flick-backend:staging-7736486
+    image: praveenmalethia/quick-flick-backend:staging-9395a05
     restart: unless-stopped
     env_file:
       - stack.env
